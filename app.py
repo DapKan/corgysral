@@ -8,81 +8,102 @@ from sklearn.preprocessing import LabelEncoder
 st.set_page_config(page_title="Аналіз кіберінцидентів", layout="wide")
 st.title("🛡️ Аналіз кіберінцидентів")
 
-# 2. Завантаження або створення тестових даних
-# Оскільки в завданні вказано CSV, додаємо можливість завантаження
+# 2. Завантаження або створення даних
 uploaded_file = st.sidebar.file_uploader("Завантажте CSV файл", type="csv")
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    try:
+        # Спроба прочитати файл з різними кодуваннями
+        df = pd.read_csv(uploaded_file)
+    except Exception as e:
+        st.error(f"Помилка при читанні файлу: {e}")
+        st.stop()
 else:
-    # Створюємо демонстраційні дані, якщо файл не завантажено
+    # Виправлено: freq='ME' для сумісності з новими версіями Pandas
     data = {
-        'дата': pd.date_range(start='2020-01-01', periods=100, freq='M'),
-        'тип атаки': ['Phishing', 'DDoS', 'Malware', 'SQL Injection'] * 25,
-        'сектор': ['Government', 'Finance', 'Healthcare', 'Tech', 'Energy'] * 20,
-        'втрати': [1000, 5000, 15000, 2000, 8000, 45000, 3000, 12000] * 12 + [5000, 1000, 2000, 3000]
+        'дата': pd.date_range(start='2020-01-01', periods=100, freq='ME'),
+        'тип атаки': (['Phishing', 'DDoS', 'Malware', 'SQL Injection'] * 25),
+        'сектор': (['Government', 'Finance', 'Healthcare', 'Tech', 'Energy'] * 20),
+        'втрати': ([1000, 5000, 15000, 2000, 8000, 45000, 3000, 12000] * 12 + [5000, 1000, 2000, 3000])
     }
     df = pd.DataFrame(data)
     st.info("Використовуються демонстраційні дані. Завантажте свій CSV у бічній панелі.")
 
-# Перетворення дати
+# Перетворення дати та створення колонки "рік"
 df['дата'] = pd.to_datetime(df['дата'])
 df['рік'] = df['дата'].dt.year
 
 # 3. Фільтри (Бічна панель)
-st.sidebar.header("Фільтрація")
-selected_year = st.sidebar.multiselect("Оберіть рік", options=df['рік'].unique(), default=df['рік'].unique())
-selected_type = st.sidebar.multiselect("Оберіть тип атаки", options=df['тип атаки'].unique(), default=df['тип атаки'].unique())
+st.sidebar.header("⚙️ Фільтрація")
+years = sorted(df['рік'].unique())
+selected_year = st.sidebar.multiselect("Оберіть рік", options=years, default=years)
 
+attack_types = sorted(df['тип атаки'].unique())
+selected_type = st.sidebar.multiselect("Оберіть тип атаки", options=attack_types, default=attack_types)
+
+# Застосування фільтрів
 filtered_df = df[(df['рік'].isin(selected_year)) & (df['тип атаки'].isin(selected_type))]
 
 # 4. Статистика атак за секторами
 st.header("📊 Статистика атак за секторами")
+
 if not filtered_df.empty:
-    sector_stats = filtered_df['сектор'].value_range().value_counts() if 'сектор' in filtered_df else filtered_df.groupby('сектор').size()
+    col1, col2 = st.columns([1, 1])
     
-    col1, col2 = st.columns(2)
     with col1:
-        st.dataframe(filtered_df)
+        st.subheader("Дані")
+        st.dataframe(filtered_df, use_container_width=True)
+    
     with col2:
+        st.subheader("Графік")
         fig, ax = plt.subplots()
-        filtered_df['сектор'].value_counts().plot(kind='bar', ax=ax, color='skyblue')
+        # Рахуємо кількість інцидентів на сектор
+        sector_counts = filtered_df['сектор'].value_counts()
+        sector_counts.plot(kind='bar', ax=ax, color='skyblue', edgecolor='black')
         ax.set_ylabel("Кількість інцидентів")
         ax.set_xlabel("Сектор")
+        plt.xticks(rotation=45)
         st.pyplot(fig)
 else:
-    st.warning("Немає даних для відображення за обраними фільтрами.")
+    st.warning("Дані відсутні для обраних фільтрів.")
 
 # 5. Кластеризація (K-Means)
+st.divider()
 st.header("🤖 Кластеризація інцидентів (K-Means)")
 
-if len(filtered_df) >= 3:
-    # Підготовка даних для кластеризації
-    # Оскільки K-Means працює з числами, кодуємо категоріальні ознаки
+if len(filtered_df) >= 5:
+    # Підготовка даних: кодуємо текст у числа для алгоритму
     le_type = LabelEncoder()
     le_sector = LabelEncoder()
     
-    cluster_df = filtered_df.copy()
-    cluster_df['тип_encoded'] = le_type.fit_transform(cluster_df['тип атаки'])
-    cluster_df['сектор_encoded'] = le_sector.fit_transform(cluster_df['сектор'])
+    cluster_prep = filtered_df.copy()
+    cluster_prep['тип_n'] = le_type.fit_transform(cluster_prep['тип атаки'])
+    cluster_prep['сектор_n'] = le_sector.fit_transform(cluster_prep['сектор'])
     
-    # Вибираємо ознаки для кластеризації: Тип, Сектор та Втрати
-    features = cluster_df[['тип_encoded', 'сектор_encoded', 'втрати']]
+    # Використовуємо Сектор та Втрати для кластеризації
+    X = cluster_prep[['сектор_n', 'втрати']]
     
-    n_clusters = st.slider("Кількість кластерів", 2, 5, 3)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    cluster_df['кластер'] = kmeans.fit_predict(features)
+    n_clusters = st.select_slider("Оберіть кількість кластерів", options=[2, 3, 4, 5], value=3)
+    
+    kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+    filtered_df['кластер'] = kmeans.fit_predict(X)
     
     # Візуалізація кластерів
     fig2, ax2 = plt.subplots()
-    scatter = ax2.scatter(cluster_df['сектор_encoded'], cluster_df['втрати'], 
-                          c=cluster_df['кластер'], cmap='viridis', s=100)
-    ax2.set_xlabel("Сектор (encoded)")
+    scatter = ax2.scatter(
+        filtered_df['сектор'], 
+        filtered_df['втрати'], 
+        c=filtered_df['кластер'], 
+        cmap='viridis', 
+        s=100, 
+        edgecolors='black'
+    )
+    ax2.set_xlabel("Сектор")
     ax2.set_ylabel("Фінансові втрати")
-    plt.colorbar(scatter, label='Номер кластера')
+    plt.xticks(rotation=45)
     st.pyplot(fig2)
     
-    st.write("Результати кластеризації (перші 10 рядків):")
-    st.table(cluster_df[['дата', 'тип атаки', 'сектор', 'втрати', 'кластер']].head(10))
+    st.write("**Результат з розподілом по кластерах:**")
+    st.dataframe(filtered_df.sort_values('кластер'), use_container_width=True)
 else:
-    st.error("Недостатньо даних для проведення кластеризації (мінімум 3 інциденти).")
+    st.info("Додайте більше даних через фільтри для проведення кластеризації.")
