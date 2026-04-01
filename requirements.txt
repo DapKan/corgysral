@@ -4,3 +4,5 @@ plotly
 textblob
 matplotlib
 scikit-learn
+wordcloud
+pdfplumber
