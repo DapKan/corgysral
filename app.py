@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 # 1. Пряме посилання на ваш файл у репозиторії
 # ЗАМІНІТЬ ЦЕ ПОСИЛАННЯ НА ВЛАСНЕ
-FILE_URL = "https://raw.githubusercontent.com/ВАШ_ЛОГІН/ВАШ_РЕПОЗИТОРІЙ/main/document.txt"
+FILE_URL = "https://raw.githubusercontent.com/DapKan/corgysral/refs/heads/main/document.txt"
 
 st.set_page_config(page_title="Авто-завантаження з GitHub", layout="wide")
 st.title("📄 Аналітика файлу з репозиторію")
