@@ -10,7 +10,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 
 # 1. Пряме посилання на файл у твоєму репозиторії (Raw-посилання)
-FILE_URL = "https://raw.githubusercontent.com/ВАШ_ЛОГІН/ВАШ_РЕПОЗИТОРІЙ/main/document.txt"
+FILE_URL = "https://raw.githubusercontent.com/DapKan/corgysral/refs/heads/main/document.txt"
 
 st.set_page_config(page_title="Текстова аналітика", layout="wide")
 st.title("📄 Автоматична текстова аналітика")
