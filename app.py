@@ -1,84 +1,88 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from textblob import TextBlob
-from datetime import datetime
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import LabelEncoder
 
-# Налаштування сторінки
-st.set_page_config(page_title="Twitter/X Analyzer", layout="wide")
+# 1. Налаштування сторінки
+st.set_page_config(page_title="Аналіз кіберінцидентів", layout="wide")
+st.title("🛡️ Аналіз кіберінцидентів")
 
-st.title("📊 Веб-додаток «Аналіз Twitter / X-аккаунтів»")
+# 2. Завантаження або створення тестових даних
+# Оскільки в завданні вказано CSV, додаємо можливість завантаження
+uploaded_file = st.sidebar.file_uploader("Завантажте CSV файл", type="csv")
 
-# --- 1. ОТРИМАННЯ ДАНИХ ---
-st.sidebar.header("Завантаження даних")
-uploaded_file = st.sidebar.file_uploader("Завантажте CSV-файл із твітами", type=["csv"])
-
-# Приклад структури CSV, якщо файл не завантажено
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
 else:
-    st.info("Будь ласка, завантажте CSV. Очікувані колонки: 'text', 'created_at', 'retweets', 'likes'.")
-    # Демо-дані для демонстрації роботи
+    # Створюємо демонстраційні дані, якщо файл не завантажено
     data = {
-        'text': [
-            "I love this new update! So helpful.", 
-            "This is the worst service ever.", 
-            "Just okay, nothing special.", 
-            "Absolutely amazing experience!",
-            "I'm so frustrated with the bugs."
-        ],
-        'created_at': ['2023-10-01', '2023-10-02', '2023-10-02', '2023-10-03', '2023-10-04'],
-        'retweets': [10, 5, 2, 20, 1],
-        'likes': [50, 10, 5, 100, 2]
+        'дата': pd.date_range(start='2020-01-01', periods=100, freq='M'),
+        'тип атаки': ['Phishing', 'DDoS', 'Malware', 'SQL Injection'] * 25,
+        'сектор': ['Government', 'Finance', 'Healthcare', 'Tech', 'Energy'] * 20,
+        'втрати': [1000, 5000, 15000, 2000, 8000, 45000, 3000, 12000] * 12 + [5000, 1000, 2000, 3000]
     }
     df = pd.DataFrame(data)
-    df['created_at'] = pd.to_datetime(df['created_at'])
+    st.info("Використовуються демонстраційні дані. Завантажте свій CSV у бічній панелі.")
 
-# --- 2. ОБЧИСЛЕННЯ АКТИВНОСТІ ТА ENGAGEMENT ---
-st.header("📈 Метрики залученості (Engagement)")
+# Перетворення дати
+df['дата'] = pd.to_datetime(df['дата'])
+df['рік'] = df['дата'].dt.year
 
-# Engagement = (Likes + Retweets)
-df['engagement'] = df['likes'] + df['retweets']
-avg_engagement = df['engagement'].mean()
-total_tweets = len(df)
+# 3. Фільтри (Бічна панель)
+st.sidebar.header("Фільтрація")
+selected_year = st.sidebar.multiselect("Оберіть рік", options=df['рік'].unique(), default=df['рік'].unique())
+selected_type = st.sidebar.multiselect("Оберіть тип атаки", options=df['тип атаки'].unique(), default=df['тип атаки'].unique())
 
-col1, col2 = st.columns(2)
-col1.metric("Загальна кількість твітів", total_tweets)
-col2.metric("Середній Engagement", round(avg_engagement, 2))
+filtered_df = df[(df['рік'].isin(selected_year)) & (df['тип атаки'].isin(selected_type))]
 
-# --- 3. ВІЗУАЛІЗАЦІЯ ДИНАМІКИ ---
-st.header("📅 Динаміка публікацій")
+# 4. Статистика атак за секторами
+st.header("📊 Статистика атак за секторами")
+if not filtered_df.empty:
+    sector_stats = filtered_df['сектор'].value_range().value_counts() if 'сектор' in filtered_df else filtered_df.groupby('сектор').size()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.dataframe(filtered_df)
+    with col2:
+        fig, ax = plt.subplots()
+        filtered_df['сектор'].value_counts().plot(kind='bar', ax=ax, color='skyblue')
+        ax.set_ylabel("Кількість інцидентів")
+        ax.set_xlabel("Сектор")
+        st.pyplot(fig)
+else:
+    st.warning("Немає даних для відображення за обраними фільтрами.")
 
-# Групування за датами
-df['date'] = pd.to_datetime(df['created_at']).dt.date
-daily_counts = df.groupby('date').size().reset_index(name='tweet_count')
+# 5. Кластеризація (K-Means)
+st.header("🤖 Кластеризація інцидентів (K-Means)")
 
-fig_line = px.line(daily_counts, x='date', y='tweet_count', 
-                  title="Кількість твітів по днях",
-                  labels={'tweet_count': 'Кількість твітів', 'date': 'Дата'})
-st.plotly_chart(fig_line, use_container_width=True)
-
-# --- 4. SENTIMENT ANALYSIS (Аналіз тональності) ---
-st.header("🧠 Sentiment Analysis")
-
-def get_sentiment(text):
-    analysis = TextBlob(str(text))
-    if analysis.sentiment.polarity > 0:
-        return "Positive"
-    elif analysis.sentiment.polarity < 0:
-        return "Negative"
-    else:
-        return "Neutral"
-
-df['sentiment'] = df['text'].apply(get_sentiment)
-sentiment_counts = df['sentiment'].value_counts().reset_index()
-
-fig_pie = px.pie(sentiment_counts, values='count', names='sentiment', 
-                 title="Розподіл настроїв аудиторії",
-                 color='sentiment',
-                 color_discrete_map={'Positive':'green', 'Neutral':'gray', 'Negative':'red'})
-st.plotly_chart(fig_pie)
-
-# Відображення таблиці даних
-if st.checkbox("Показати сирі дані"):
-    st.write(df)
+if len(filtered_df) >= 3:
+    # Підготовка даних для кластеризації
+    # Оскільки K-Means працює з числами, кодуємо категоріальні ознаки
+    le_type = LabelEncoder()
+    le_sector = LabelEncoder()
+    
+    cluster_df = filtered_df.copy()
+    cluster_df['тип_encoded'] = le_type.fit_transform(cluster_df['тип атаки'])
+    cluster_df['сектор_encoded'] = le_sector.fit_transform(cluster_df['сектор'])
+    
+    # Вибираємо ознаки для кластеризації: Тип, Сектор та Втрати
+    features = cluster_df[['тип_encoded', 'сектор_encoded', 'втрати']]
+    
+    n_clusters = st.slider("Кількість кластерів", 2, 5, 3)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_df['кластер'] = kmeans.fit_predict(features)
+    
+    # Візуалізація кластерів
+    fig2, ax2 = plt.subplots()
+    scatter = ax2.scatter(cluster_df['сектор_encoded'], cluster_df['втрати'], 
+                          c=cluster_df['кластер'], cmap='viridis', s=100)
+    ax2.set_xlabel("Сектор (encoded)")
+    ax2.set_ylabel("Фінансові втрати")
+    plt.colorbar(scatter, label='Номер кластера')
+    st.pyplot(fig2)
+    
+    st.write("Результати кластеризації (перші 10 рядків):")
+    st.table(cluster_df[['дата', 'тип атаки', 'сектор', 'втрати', 'кластер']].head(10))
+else:
+    st.error("Недостатньо даних для проведення кластеризації (мінімум 3 інциденти).")
