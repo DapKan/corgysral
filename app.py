@@ -1,109 +1,106 @@
 import streamlit as st
 import pandas as pd
 import requests
+import pdfplumber
 import matplotlib.pyplot as plt
+import re
 from io import BytesIO
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import LabelEncoder
+from wordcloud import WordCloud
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
 
-FILE_URL = "https://raw.githubusercontent.com/DapKan/corgysral/refs/heads/main/cyber_attacks.csv"
+# 1. Пряме посилання на файл у репозиторії (Raw-посилання)
+FILE_URL = "https://raw.githubusercontent.com/DapKan/corgysral/refs/heads/main/document.txt"
 
-st.set_page_config(page_title="Аналіз кіберінцидентів", layout="wide")
-st.title("🛡️ Аналіз кіберінцидентів (Auto-load)")
+st.set_page_config(page_title="Текстова аналітика", layout="wide")
+st.title("📄 Автоматична текстова аналітика")
 
-# Функція для завантаження даних з GitHub
+# Функція завантаження
 @st.cache_data
-def load_data_from_url(url):
+def fetch_data(url):
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Перевірка на помилки (напр. 404)
-        return pd.read_csv(BytesIO(response.content))
+        response.raise_for_status()
+        return response.content
     except Exception as e:
-        st.error(f"Не вдалося завантажити файл з репозиторію: {e}")
+        st.error(f"Помилка завантаження: {e}")
         return None
 
-# --- Завантаження даних ---
-df = load_data_from_url(FILE_URL)
+# Функція очищення тексту
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\d+', '', text)
+    return text
 
-if df is not None:
-    # Базова підготовка даних
-    df['дата'] = pd.to_datetime(df['дата'])
-    df['рік'] = df['дата'].dt.year
+# --- Процес завантаження ---
+file_data = fetch_data(FILE_URL)
 
-    # --- Фільтри у бічній панелі ---
-    st.sidebar.header("⚙️ Фільтрація")
-    
-    all_years = sorted(df['рік'].unique())
-    selected_years = st.sidebar.multiselect("Оберіть роки", options=all_years, default=all_years)
-    
-    all_types = sorted(df['тип атаки'].unique())
-    selected_types = st.sidebar.multiselect("Оберіть типи атак", options=all_types, default=all_types)
+if file_data:
+    # Витягування тексту (PDF або TXT)
+    if FILE_URL.lower().endswith(".pdf"):
+        with pdfplumber.open(BytesIO(file_data)) as pdf:
+            raw_text = " ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+    else:
+        raw_text = file_data.decode("utf-8")
 
-    # Фільтрація датафрейму
-    filtered_df = df[(df['рік'].isin(selected_years)) & (df['тип атаки'].isin(selected_types))]
+    if raw_text.strip():
+        cleaned_text = clean_text(raw_text)
+        words = cleaned_text.split()
 
-    # --- Побудова статистики атак за секторами ---
-    st.header("📊 Статистика атак за секторами")
-    
-    if not filtered_df.empty:
-        col1, col2 = st.columns([1, 1])
+        # --- 1. Частота слів та Barplot ---
+        st.header("📊 Частота слів")
+        word_counts = pd.Series(words).value_counts().head(15)
         
+        col1, col2 = st.columns([1, 2])
         with col1:
-            st.write("**Відфільтровані дані:**")
-            st.dataframe(filtered_df, use_container_width=True)
-            
+            st.write("**Топ-15 слів:**")
+            st.dataframe(word_counts, use_container_width=True)
         with col2:
-            st.write("**Розподіл за секторами:**")
-            fig, ax = plt.subplots()
-            sector_counts = filtered_df['сектор'].value_counts()
-            sector_counts.plot(kind='bar', ax=ax, color='teal', edgecolor='black')
-            ax.set_ylabel("Кількість інцидентів")
+            fig1, ax1 = plt.subplots(figsize=(8, 4))
+            word_counts.plot(kind='bar', ax=ax1, color='skyblue', edgecolor='black')
+            ax1.set_title("Найчастіші слова")
             plt.xticks(rotation=45)
-            st.pyplot(fig)
-    else:
-        st.warning("Дані відсутні для обраних фільтрів.")
+            st.pyplot(fig1)
 
-    # --- Кластеризація інцидентів (K-Means) ---
-    st.divider()
-    st.header("🤖 Кластеризація інцидентів (K-Means)")
-    
-    if len(filtered_df) >= 3:
-        # Підготовка ознак для кластеризації
-        le_type = LabelEncoder()
-        le_sector = LabelEncoder()
-        
-        cluster_df = filtered_df.copy()
-        cluster_df['тип_n'] = le_type.fit_transform(cluster_df['тип атаки'])
-        cluster_df['сектор_n'] = le_sector.fit_transform(cluster_df['сектор'])
-        
-        # Кластеризуємо за сектором та сумою втрат
-        X = cluster_df[['сектор_n', 'втрати']]
-        
-        k = st.slider("Кількість кластерів (K)", 2, 5, 3)
-        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-        cluster_df['кластер'] = kmeans.fit_predict(X)
-        
-        # Візуалізація кластерів
+        # --- 2. WordCloud ---
+        st.divider()
+        st.header("☁️ Хмара слів (WordCloud)")
+        wc = WordCloud(width=1000, height=500, background_color='white').generate(cleaned_text)
         fig2, ax2 = plt.subplots(figsize=(10, 5))
-        scatter = ax2.scatter(
-            cluster_df['сектор'], 
-            cluster_df['втрати'], 
-            c=cluster_df['кластер'], 
-            cmap='viridis', 
-            s=150, 
-            edgecolors='white',
-            alpha=0.8
-        )
-        ax2.set_title(f"Розподіл на {k} кластери")
-        ax2.set_xlabel("Сектор")
-        ax2.set_ylabel("Фінансові втрати")
-        plt.xticks(rotation=45)
+        ax2.imshow(wc, interpolation='bilinear')
+        ax2.axis('off')
         st.pyplot(fig2)
-        
-        st.write("**Таблиця з результатами кластеризації:**")
-        st.dataframe(cluster_df[['дата', 'тип атаки', 'сектор', 'втрати', 'кластер']].sort_values('кластер'))
-    else:
-        st.info("Для кластеризації потрібно мінімум 3 записи.")
 
+        # --- 3. Тематичне моделювання (LDA) ---
+        st.divider()
+        st.header("🤖 Тематичне моделювання (LDA)")
+        
+        n_topics = st.slider("Кількість тем", 2, 5, 3)
+        
+        # Використовуємо CountVectorizer для підготовки даних
+        vectorizer = CountVectorizer(stop_words='english', max_features=500)
+        # Для LDA потрібен список документів, тому кладемо текст у список
+        data_vectorized = vectorizer.fit_transform([cleaned_text])
+        
+        if data_vectorized.shape[1] > 5:
+            lda_model = LatentDirichletAllocation(n_components=n_topics, random_state=42)
+            lda_model.fit(data_vectorized)
+            
+            # Вивід тем
+            feature_names = vectorizer.get_feature_names_out()
+            cols = st.columns(n_topics)
+            
+            for i, topic in enumerate(lda_model.components_):
+                with cols[i]:
+                    st.success(f"**Тема №{i+1}**")
+                    top_idx = topic.argsort()[-7:][::-1]
+                    top_words = [feature_names[idx] for idx in top_idx]
+                    st.write(" • " + "\n • ".join(top_words))
+        else:
+            st.info("Текст занадто короткий для якісного виділення тем.")
+
+    else:
+        st.error("Файл порожній.")
 else:
-    st.info("Будь ласка, перевірте посилання FILE_URL у коді.")
+    st.warning("Чекаю на завантаження файлу з GitHub...")
