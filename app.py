@@ -3,13 +3,11 @@ import pandas as pd
 import plotly.express as px
 from textblob import TextBlob
 
-# Налаштування сторінки
 st.set_page_config(page_title="Twitter/X Auto-Analyzer", layout="wide")
 
 st.title("📊 Аналіз Twitter-акаунтів (Автозавантаження з GitHub)")
 
 # --- 1. АВТОМАТИЧНЕ ОТРИМАННЯ ДАНИХ ---
-# ЗАМІНИ ЦЕ ПОСИЛАННЯ НА СВОЄ (натисни 'Raw' на файлі в GitHub і скопіюй URL)
 repo_url = "https://raw.githubusercontent.com/DapKan/corgysral/refs/heads/main/tweets_data.csv"
 
 @st.cache_data # Кешування, щоб не качати файл при кожному кліку
